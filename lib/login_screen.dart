@@ -43,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = "Login gagal. Periksa kembali email dan password Anda.";
+          _errorMessage = "Gagal: ${e.toString()}";
         });
       }
     } finally {

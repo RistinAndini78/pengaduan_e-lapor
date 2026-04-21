@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'providers/pengaduan_provider.dart';
 import 'api_service.dart';
 import 'widgets/app_drawer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:fl_chart/fl_chart.dart';
+import 'widgets/shimmer_loading.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -15,17 +19,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final ApiService _apiService = ApiService();
   final TextEditingController _searchController = TextEditingController();
   
-  List<dynamic> _allReports = [];
-  List<dynamic> _filteredReports = [];
-  bool _isLoading = true;
   String _adminName = 'Admin Sistem';
 
   @override
   void initState() {
     super.initState();
     _loadAdminInfo();
-    _fetchReports();
-    _searchController.addListener(_filterReports);
+    // Memanggil provider untuk admin
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<PengaduanProvider>().fetchSemuaPengaduan();
+    });
   }
 
   Future<void> _loadAdminInfo() async {
@@ -39,38 +42,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  Future<void> _fetchReports() async {
-    try {
-      final reports = await _apiService.getAdminReports();
-      setState(() {
-        _allReports = reports;
-        _filteredReports = reports;
-        _isLoading = false;
-      });
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal mengambil data laporan.')));
-      }
-    }
-  }
-
-  void _filterReports() {
-    final term = _searchController.text.toLowerCase();
-    setState(() {
-      _filteredReports = _allReports.where((r) {
-        final title = (r['judul_pengaduan'] ?? '').toString().toLowerCase();
-        final name = (r['user']?['name'] ?? '').toString().toLowerCase();
-        return title.contains(term) || name.contains(term);
-      }).toList();
-    });
-  }
-
   Future<void> _updateStatus(int id, String newStatus) async {
     try {
       await _apiService.updateReportStatus(id, newStatus);
-      _fetchReports(); // Refresh
       if (mounted) {
+        context.read<PengaduanProvider>().fetchSemuaPengaduan(); // Refresh provider
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status berhasil diperbarui!'), backgroundColor: Colors.green));
       }
     } catch (e) {
@@ -82,10 +58,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    int total = _allReports.length;
-    int pending = _allReports.where((r) => r['status_laporan'] == 'menunggu').length;
-    int selesai = _allReports.where((r) => r['status_laporan'] == 'selesai').length;
-
     return Scaffold(
       drawer: const AppDrawer(),
       backgroundColor: const Color(0xFFF8FAFC),
@@ -117,10 +89,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           )
         ],
       ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator()) 
-        : RefreshIndicator(
-            onRefresh: _fetchReports,
+      body: Consumer<PengaduanProvider>(
+        builder: (context, provider, child) {
+          if (provider.state == PengaduanState.loading) {
+            return const Padding(
+              padding: EdgeInsets.all(20.0),
+              child: ShimmerLoading(),
+            );
+          }
+
+          if (provider.state == PengaduanState.error) {
+            return Center(child: Text('Gagal: ${provider.errorMessage}'));
+          }
+
+          final allReports = provider.pengaduans;
+          final searchTerm = _searchController.text.toLowerCase();
+          final filteredReports = allReports.where((r) {
+            return r.judul.toLowerCase().contains(searchTerm) || 
+                   r.deskripsi.toLowerCase().contains(searchTerm);
+          }).toList();
+
+          int total = allReports.length;
+          int pending = allReports.where((r) => r.status.toLowerCase() == 'pending' || r.status.toLowerCase() == 'menunggu').length;
+          int selesai = allReports.where((r) => r.status.toLowerCase() == 'selesai').length;
+          int proses = allReports.where((r) => r.status.toLowerCase() == 'diproses').length;
+
+          return RefreshIndicator(
+            onRefresh: () => provider.fetchSemuaPengaduan(),
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -128,8 +123,56 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 children: [
                   _buildStatCards(total, pending, selesai),
                   const SizedBox(height: 32),
+
+                  // VISUAL ANALYTICS CARD (GRAFIK)
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(30),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 20, offset: const Offset(0, 10))],
+                    ),
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Analitik Data Visual', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
+                        const SizedBox(height: 4),
+                        const Text('Distribusi status laporan saat ini.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        const SizedBox(height: 32),
+                        SizedBox(
+                          height: 200,
+                          child: total == 0 
+                            ? const Center(child: Text('Belum ada data untuk grafik.'))
+                            : PieChart(
+                                PieChartData(
+                                  sectionsSpace: 4,
+                                  centerSpaceRadius: 50,
+                                  sections: [
+                                    PieChartSectionData(value: pending.toDouble(), color: const Color(0xFF3B82F6), radius: 25, title: '', badgeWidget: const Icon(Icons.timer, color: Colors.white, size: 16)),
+                                    PieChartSectionData(value: proses.toDouble(), color: const Color(0xFFF59E0B), radius: 25, title: '', badgeWidget: const Icon(Icons.sync, color: Colors.white, size: 16)),
+                                    PieChartSectionData(value: selesai.toDouble(), color: const Color(0xFF10B981), radius: 25, title: '', badgeWidget: const Icon(Icons.check_circle, color: Colors.white, size: 16)),
+                                  ],
+                                ),
+                              ),
+                        ),
+                        const SizedBox(height: 24),
+                        // Legenda Grafik
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _chartLegend(const Color(0xFF3B82F6), 'Menunggu'),
+                            const SizedBox(width: 16),
+                            _chartLegend(const Color(0xFFF59E0B), 'Diproses'),
+                            const SizedBox(width: 16),
+                            _chartLegend(const Color(0xFF10B981), 'Selesai'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
                   
-                  // MAIN CONTENT CARD
                   Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -146,6 +189,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         const SizedBox(height: 20),
                         TextField(
                           controller: _searchController,
+                          onChanged: (_) => setState(() {}), // Refresh local filter
                           decoration: InputDecoration(
                             hintText: 'Cari pelapor atau judul...',
                             hintStyle: const TextStyle(fontSize: 13),
@@ -156,15 +200,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
-                        _filteredReports.isEmpty
+                        filteredReports.isEmpty
                           ? const Center(child: Text('Tidak ada laporan.'))
                           : ListView.separated(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
-                              itemCount: _filteredReports.length,
+                              itemCount: filteredReports.length,
                               separatorBuilder: (c, i) => const Divider(height: 40),
                               itemBuilder: (context, index) {
-                                return _buildReportItem(_filteredReports[index]);
+                                return _buildReportItemFromModel(filteredReports[index]);
                               },
                             ),
                       ],
@@ -173,9 +217,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ],
               ),
             ),
-        ),
+          );
+        },
+      ),
     );
   }
+
+  Widget _buildReportItemFromModel(dynamic p) {
+    final r = {
+      'id': p.id,
+      'judul_pengaduan': p.judul,
+      'deskripsi_masalah': p.deskripsi,
+      'lokasi_kejadian': p.lokasi,
+      'status_laporan': p.status,
+      'foto_bukti': p.foto,
+      'user': {'name': 'Pelapor'} // Data model bisa diperluas jika perlu
+    };
+    return _buildReportItem(r);
+  }
+
 
   Widget _buildStatCards(int total, int pending, int selesai) {
     return Column(
@@ -342,6 +402,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         Navigator.pop(context);
         _updateStatus(id, val);
       },
+    );
+  }
+
+  Widget _chartLegend(Color color, String label) {
+    return Row(
+      children: [
+        Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+      ],
     );
   }
 }

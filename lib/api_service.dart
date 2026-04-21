@@ -4,27 +4,9 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static String get baseUrl {
-    // SILAKAN GANTI URL DI BAWAH INI DENGAN URL DARI RAILWAY ANDA
-    const String productionUrl = 'https://URL_RAILWAY_ANDA_DISINI.up.railway.app/api';
-
-    if (kReleaseMode) {
-      return productionUrl;
-    } else {
-      if (kIsWeb) {
-        return 'http://localhost:8000/api';
-      } else if (defaultTargetPlatform == TargetPlatform.android) {
-        return 'http://10.0.2.2:8000/api';
-      } else {
-        return 'http://127.0.0.1:8000/api';
-      }
-    }
-  }
-
-  static String get imgBaseUrl {
-    String base = baseUrl.replaceAll('/api', '');
-    return '$base/storage';
-  }
+  // HARDCODED URL UNTUK MEMASTIKAN TIDAK ADA ERROR CACHE
+  static const String baseUrl = 'https://e-lapor-production.up.railway.app/api';
+  static const String imgBaseUrl = 'https://e-lapor-production.up.railway.app/storage';
 
   Future<Map<String, dynamic>> login(String email, String password) async {
     final response = await http.post(
@@ -62,7 +44,7 @@ class ApiService {
         headers: {
           'Authorization': 'Bearer $token',
           'Accept': 'application/json',
-        },
+         },
       );
     }
     await prefs.clear();
@@ -141,6 +123,44 @@ class ApiService {
     return [];
   }
 
+  static Future<List<dynamic>> getPengaduanSaya() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+    final response = await http.get(
+      Uri.parse('$baseUrl/pengaduan'),
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final data = jsonDecode(response.body);
+      if (data is List) return List<dynamic>.from(data);
+      if (data is Map && data.containsKey('data')) return List<dynamic>.from(data['data']);
+      return [];
+    }
+    throw Exception('Gagal memuat aduan Anda.');
+  }
+
+  static Future<List<dynamic>> getAllPengaduan() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+    final response = await http.get(
+      Uri.parse('$baseUrl/pengaduan'),
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final data = jsonDecode(response.body);
+      if (data is List) return List<dynamic>.from(data);
+      if (data is Map && data.containsKey('data')) return List<dynamic>.from(data['data']);
+      return [];
+    }
+    throw Exception('Gagal memuat semua aduan.');
+  }
+
   Future<void> updateReportStatus(int id, String newStatus) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('access_token');
@@ -153,5 +173,20 @@ class ApiService {
       },
       body: jsonEncode({'status_laporan': newStatus}),
     );
+  }
+
+  static Future<void> deletePengaduan(int id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+    final response = await http.delete(
+      Uri.parse('$baseUrl/pengaduan/$id'),
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+    if (response.statusCode >= 300) {
+      throw Exception('Gagal menghapus laporan.');
+    }
   }
 }

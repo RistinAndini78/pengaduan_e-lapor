@@ -8,9 +8,21 @@ import 'tentang_screen.dart';
 import 'cara_melapor_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_users_screen.dart';
+import 'profile_screen.dart';
+import 'splash_screen.dart';
+
+import 'package:provider/provider.dart';
+import 'providers/pengaduan_provider.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => PengaduanProvider()),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -29,8 +41,9 @@ class MyApp extends StatelessWidget {
         fontFamily: 'Plus Jakarta Sans', // Ensure this font is added in your pubspec.yaml if needed
         useMaterial3: true,
       ),
-      initialRoute: '/',
+      initialRoute: '/splash',
       routes: {
+        '/splash': (context) => const SplashScreen(),
         '/': (context) => const HomeScreen(),
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
@@ -38,6 +51,7 @@ class MyApp extends StatelessWidget {
         '/daftar-pengaduan': (context) => const DaftarPengaduanScreen(),
         '/tentang': (context) => const TentangScreen(),
         '/cara-melapor': (context) => const CaraMelaporScreen(),
+        '/profile': (context) => const ProfileScreen(),
         '/dashboard/admin': (context) => const AdminDashboardScreen(),
         '/dashboard/admin/users': (context) => const AdminUsersScreen(),
       },

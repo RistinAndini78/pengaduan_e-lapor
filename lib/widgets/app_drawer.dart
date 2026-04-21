@@ -159,6 +159,12 @@ class AppDrawer extends StatelessWidget {
                       ),
                     ],
 
+                    if (isLoggedIn) ...[
+                      const SizedBox(height: 16),
+                      _buildSectionTitle('AKUN ANDA'),
+                      _buildMenuItem(context, Icons.person_outline_rounded, 'Profil Saya', '/profile'),
+                    ],
+
                     if (role != 'admin') ...[
                       const SizedBox(height: 16),
                       _buildSectionTitle('INFORMASI'),

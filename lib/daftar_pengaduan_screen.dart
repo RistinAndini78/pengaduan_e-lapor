@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
-import 'api_service.dart';
+import 'package:provider/provider.dart';
+import 'providers/pengaduan_provider.dart';
 import 'widgets/app_drawer.dart';
+import 'api_service.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'detail_pengaduan_screen.dart';
+import 'models/pengaduan.dart';
+import 'widgets/shimmer_loading.dart';
 
 class DaftarPengaduanScreen extends StatefulWidget {
   const DaftarPengaduanScreen({super.key});
@@ -10,30 +16,15 @@ class DaftarPengaduanScreen extends StatefulWidget {
 }
 
 class _DaftarPengaduanScreenState extends State<DaftarPengaduanScreen> {
-  final ApiService _apiService = ApiService();
-  List<dynamic> _pengaduanList = [];
-  bool _isLoading = true;
-  String? _errorMessage;
+  final TextEditingController _searchController = TextEditingController();
+  String _selectedStatus = 'Semua';
 
   @override
   void initState() {
     super.initState();
-    _fetchPengaduan();
-  }
-
-  Future<void> _fetchPengaduan() async {
-    try {
-      final data = await _apiService.getPengaduanPublik();
-      setState(() {
-        _pengaduanList = data;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = "Gagal memuat data pengaduan: $e";
-        _isLoading = false;
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<PengaduanProvider>().fetchSemuaPengaduan();
+    });
   }
 
   @override
@@ -42,52 +33,120 @@ class _DaftarPengaduanScreenState extends State<DaftarPengaduanScreen> {
       drawer: const AppDrawer(),
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('Daftar Pengaduan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text('Pusat Informasi Laporan', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF0F172A))),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
         iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1.0),
-          child: Container(color: Colors.grey.withOpacity(0.1), height: 1.0),
-        ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0EA5E9)))
-          : _errorMessage != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.cloud_off, color: Colors.grey, size: 64),
-                      const SizedBox(height: 16),
-                      Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0EA5E9), foregroundColor: Colors.white),
-                        onPressed: () {
-                          setState(() => _isLoading = true);
-                          _fetchPengaduan();
-                        },
-                        child: const Text('Coba Lagi'),
-                      )
-                    ],
+      body: Column(
+        children: [
+          // BARIS PENCARIAN & FILTER (KREATIVITAS)
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchController,
+                  onChanged: (v) => setState(() {}),
+                  decoration: InputDecoration(
+                    hintText: 'Cari laporan warga...',
+                    hintStyle: const TextStyle(fontSize: 14),
+                    prefixIcon: const Icon(Icons.search, color: Colors.blue),
+                    filled: true,
+                    fillColor: const Color(0xFFF1F5F9),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _fetchPengaduan,
-                  color: const Color(0xFF0EA5E9),
-                  child: _pengaduanList.isEmpty
-                      ? const Center(child: Text('Belum ada pengaduan.', style: TextStyle(color: Colors.grey)))
+                ),
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: ['Semua', 'Menunggu', 'Diproses', 'Selesai'].map((status) {
+                      bool isSelected = _selectedStatus == status;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(status, style: TextStyle(color: isSelected ? Colors.white : Colors.blue, fontWeight: FontWeight.bold, fontSize: 12)),
+                          selected: isSelected,
+                          selectedColor: Colors.blue,
+                          backgroundColor: Colors.blue.withOpacity(0.05),
+                          onSelected: (val) => setState(() => _selectedStatus = status),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          showCheckmark: false,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          Expanded(
+            child: Consumer<PengaduanProvider>(
+              builder: (context, provider, child) {
+                if (provider.state == PengaduanState.loading) {
+                  return const Padding(
+                    padding: EdgeInsets.all(20),
+                    child: ShimmerLoading(),
+                  );
+                }
+
+                if (provider.state == PengaduanState.error) {
+                  return Center(child: Text('Gagal: ${provider.errorMessage}'));
+                }
+
+                // LOGIKA FILTERING (SEARCH + STATUS)
+                final filtered = provider.pengaduans.where((p) {
+                  final matchesSearch = p.judul.toLowerCase().contains(_searchController.text.toLowerCase());
+                  final matchesStatus = _selectedStatus == 'Semua' || p.status.toLowerCase() == _selectedStatus.toLowerCase();
+                  return matchesSearch && matchesStatus;
+                }).toList();
+
+                return RefreshIndicator(
+                  onRefresh: () => provider.fetchSemuaPengaduan(),
+                  child: filtered.isEmpty
+                      ? const Center(child: Text('Tidak ada laporan yang cocok.'))
                       : ListView.builder(
                           padding: const EdgeInsets.all(20),
-                          itemCount: _pengaduanList.length,
+                          itemCount: filtered.length,
                           itemBuilder: (context, index) {
-                            final item = _pengaduanList[index];
-                            return _buildPengaduanCard(item);
+                            final item = filtered[index];
+                            return _buildPengaduanCardFromModel(item)
+                                .animate()
+                                .fadeIn(duration: 400.ms, delay: (index * 50).ms)
+                                .scaleXY(begin: 0.9, end: 1.0);
                           },
                         ),
-                ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildPengaduanCardFromModel(Pengaduan p) {
+    // Kita langsung modifikasi card di sini agar bisa navigasi
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => DetailPengaduanScreen(pengaduan: p)),
+      ),
+      child: _buildPengaduanCard({
+        'id': p.id,
+        'judul_pengaduan': p.judul,
+        'deskripsi_masalah': p.deskripsi,
+        'status_laporan': p.status,
+        'lokasi_kejadian': p.lokasi,
+        'foto_bukti': p.foto,
+        'created_at': p.tanggal ?? DateTime.now().toString(),
+      }),
     );
   }
 
@@ -137,11 +196,13 @@ class _DaftarPengaduanScreenState extends State<DaftarPengaduanScreen> {
           if (photo != null)
             ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              child: Image.network(
-                '${ApiService.imgBaseUrl}/$photo',
-                height: 180,
-                width: double.infinity,
-                fit: BoxFit.cover,
+              child: Hero(
+                tag: 'img-${item['id']}',
+                child: Image.network(
+                  '${ApiService.imgBaseUrl}/$photo',
+                  height: 180,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
                     height: 180,
@@ -161,6 +222,7 @@ class _DaftarPengaduanScreenState extends State<DaftarPengaduanScreen> {
                 },
               ),
             ),
+          ),
           
           Padding(
             padding: const EdgeInsets.all(20),

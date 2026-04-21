@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'providers/pengaduan_provider.dart';
 import 'widgets/app_drawer.dart';
 import 'api_service.dart';
+import 'detail_pengaduan_screen.dart';
+import 'models/pengaduan.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'widgets/shimmer_loading.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -46,7 +51,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadInitialData() async {
     await _loadUser();
-    await _fetchMyReports();
+    if (mounted) {
+      context.read<PengaduanProvider>().fetchPengaduans();
+    }
   }
 
   Future<void> _loadUser() async {
@@ -60,31 +67,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _fetchMyReports() async {
-    setState(() => _isFetchingHistory = true);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('access_token');
-      
-      final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/pengaduan'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        setState(() {
-          _myReports = jsonDecode(response.body);
-        });
-      }
-    } catch (e) {
-      debugPrint('Error fetching history: $e');
-    } finally {
-      setState(() => _isFetchingHistory = false);
-    }
-  }
+  // _fetchMyReports dihapus karena digantikan oleh Provider
 
   Future<void> _pickImage() async {
     final XFile? image = await _picker.pickImage(
@@ -137,7 +120,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (response.statusCode == 201) {
         _showSnackbar('Berhasil mengirim pengaduan!', Colors.green);
         _clearForm();
-        _fetchMyReports();
+        if (mounted) context.read<PengaduanProvider>().fetchPengaduans();
       } else {
         throw Exception('Gagal: ${response.body}');
       }
@@ -180,43 +163,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Info
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Pusat Laporan Warga',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-                    ),
-                    const SizedBox(height: 4),
-                    RichText(
-                      text: TextSpan(
-                        style: const TextStyle(color: Colors.grey, fontSize: 13),
-                        children: [
-                          const TextSpan(text: 'Halo '),
-                          TextSpan(text: _userName, style: const TextStyle(color: Color(0xFF0EA5E9), fontWeight: FontWeight.bold)),
-                          const TextSpan(text: ', kelola aduan Anda di sini.'),
-                        ],
+            // WELCOME BANNER PREMIUM (BIAR GAK KOSONG)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0EA5E9), Color(0xFF38BDF8)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0EA5E9).withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  )
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Icon(Icons.verified_user_rounded, color: Colors.white, size: 32),
+                      IconButton(
+                        onPressed: () => Navigator.pushNamed(context, '/profile'),
+                        icon: const Icon(Icons.account_circle, color: Colors.white),
                       ),
-                    ),
-                  ],
-                ),
-                TextButton(
-                  onPressed: () async {
-                    await ApiService().logout();
-                    if (mounted) Navigator.pushReplacementNamed(context, '/');
-                  },
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    side: BorderSide(color: Colors.red.withOpacity(0.2)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ],
                   ),
-                  child: const Text('Keluar', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  const Text(
+                    'E-Lapor Mobile',
+                    style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                  ),
+                  Text(
+                    'Halo, $_userName!',
+                    style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Suara Anda adalah langkah awal perubahan. Laporkan masalah di sekitar Anda sekarang.',
+                    style: TextStyle(color: Colors.white, fontSize: 12, height: 1.5),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 32),
 
@@ -344,31 +338,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   const Text('Riwayat Laporan Saya', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 24),
-                  if (_isFetchingHistory)
-                    const Center(child: CircularProgressIndicator())
-                  else if (_myReports.isEmpty)
-                    Center(
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 40),
-                          Icon(Icons.inbox_outlined, size: 80, color: Colors.blue.withOpacity(0.1)),
-                          const SizedBox(height: 16),
-                          const Text('Belum ada laporan yang dibuat.', style: TextStyle(color: Colors.grey, fontSize: 14)),
-                          const SizedBox(height: 40),
-                        ],
-                      ),
-                    )
-                  else
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _myReports.length,
-                      separatorBuilder: (c, i) => const Divider(height: 32),
-                      itemBuilder: (context, index) {
-                        final r = _myReports[index];
-                        return _buildReportItem(r);
-                      },
-                    ),
+                  Consumer<PengaduanProvider>(
+                    builder: (context, provider, child) {
+                      if (provider.state == PengaduanState.loading) {
+                        return const ShimmerLoading();
+                      }
+                      
+                      if (provider.state == PengaduanState.error) {
+                        return Center(child: Text('Gagal: ${provider.errorMessage}', style: const TextStyle(color: Colors.red, fontSize: 12)));
+                      }
+
+                      if (provider.pengaduans.isEmpty) {
+                        return Center(
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 40),
+                              Icon(Icons.inbox_outlined, size: 80, color: Colors.blue.withOpacity(0.1)),
+                              const SizedBox(height: 16),
+                              const Text('Belum ada laporan yang dibuat.', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                              const SizedBox(height: 40),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: provider.pengaduans.length,
+                        separatorBuilder: (c, i) => const Divider(height: 32),
+                        itemBuilder: (context, index) {
+                          final r = provider.pengaduans[index];
+                          return _buildReportItemFromModel(r);
+                        },
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -378,30 +383,89 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildReportItem(dynamic r) {
-    String status = (r['status_laporan'] ?? 'menunggu');
-    Color statusColor = status == 'selesai' ? Colors.green : (status == 'diproses' ? Colors.orange : Colors.blue);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildReportItemFromModel(Pengaduan p) {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => DetailPengaduanScreen(pengaduan: p)),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade100),
+        ),
+        child: Row(
           children: [
-            Text(r['judul_pengaduan'] ?? '-', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-              child: Text(status.toUpperCase(), style: TextStyle(color: statusColor, fontSize: 9, fontWeight: FontWeight.w900)),
+            if (p.foto != null)
+              Hero(
+                tag: 'img-${p.id}',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network('${ApiService.imgBaseUrl}/${p.foto}', width: 60, height: 60, fit: BoxFit.cover),
+                ),
+              ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(p.judul, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(height: 4),
+                  Text(p.tanggal?.substring(0, 10) ?? '-', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                ],
+              ),
             ),
+            if (p.status == 'menunggu')
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                onPressed: () => _confirmDelete(p.id!),
+              ),
+            _statusBadge(p.status),
           ],
         ),
-        const SizedBox(height: 4),
-        Text(r['created_at']?.toString().substring(0, 10) ?? '-', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-        const SizedBox(height: 8),
-        Text(r['deskripsi_masalah'] ?? '-', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-      ],
+      ),
     );
+  }
+
+  void _confirmDelete(int id) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus Laporan?'),
+        content: const Text('Laporan yang dihapus tidak bisa dikembalikan.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await context.read<PengaduanProvider>().deleteReport(id);
+                _showSnackbar('Laporan berhasil dihapus', Colors.green);
+              } catch (e) {
+                _showSnackbar('Gagal menghapus: $e', Colors.red);
+              }
+            },
+            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusBadge(String status) {
+    Color statusColor = status == 'selesai' ? Colors.green : (status == 'diproses' ? Colors.orange : Colors.blue);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+      child: Text(status.toUpperCase(), style: TextStyle(color: statusColor, fontSize: 8, fontWeight: FontWeight.w900)),
+    );
+  }
+
+  Widget _buildReportItem(dynamic r) {
+    // Fungsi ini tidak dipakai lagi karena diganti _buildReportItemFromModel
+    return const SizedBox.shrink();
   }
 
   Widget _fieldLabel(String label) {
